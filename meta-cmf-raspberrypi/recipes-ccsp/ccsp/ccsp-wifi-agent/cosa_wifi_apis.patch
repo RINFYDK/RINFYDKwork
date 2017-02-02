@@ -1,0 +1,30 @@
+diff --git a/source/TR-181/sbapi/cosa_wifi_apis.c b/source/TR-181/sbapi/cosa_wifi_apis.c
+index fbace12..669b1a6 100644
+--- a/source/TR-181/sbapi/cosa_wifi_apis.c
++++ b/source/TR-181/sbapi/cosa_wifi_apis.c
+@@ -4839,9 +4839,11 @@ CosaDmlWiFiFactoryReset
+         wifi_pushSsidAdvertisementEnable(0, false);
+         wifi_pushSsidAdvertisementEnable(1, false);
+ 	
+-
++//Home Security is not supported in RPI
++#if !defined(_PLATFORM_RASPBERRYPI_)
+     	pthread_create(&tid4, NULL, &wait_for_brlan1_up, NULL);
+ #endif
++#endif
+     }
+ 
+     // Set FixedWmmParams to TRUE on Factory Reset so that we won't override the data.
+@@ -5152,10 +5156,11 @@ printf("%s: Reset FactoryReset to 0 \n",__FUNCTION__);
+ #if !defined(_COSA_BCM_MIPS_)
+             wifi_pushSsidAdvertisementEnable(0, false);
+             wifi_pushSsidAdvertisementEnable(1, false);
+-
+-
++//Home Security is not supported in RPI
++#if !defined(_PLATFORM_RASPBERRYPI_)
+     	    pthread_create(&tid4, NULL, &wait_for_brlan1_up, NULL);
+ #endif
++#endif
+         }
+     }

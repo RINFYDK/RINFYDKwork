@@ -1,0 +1,13 @@
+--- a/source/gw_prov_sm.c	2016-12-20 15:13:24.215504704 +0530
++++ b/source/gw_prov_sm.c	2016-12-20 15:18:27.895511982 +0530
+@@ -1415,9 +1415,7 @@ static void *GWP_sysevent_threadfunc(voi
+             {
+                 if (strcmp(val, "started") == 0) {
+                     if (!webui_started) { 
+-#if !defined(_PLATFORM_RASPBERRYPI_)
+-                        startWebUIProcess();
+-#endif
++                        system("/bin/sh /etc/webgui.sh"); 
+                         webui_started = 1 ;
+ #ifdef CONFIG_CISCO_HOME_SECURITY
+                         //Piggy back off the webui start event to signal XHS startup

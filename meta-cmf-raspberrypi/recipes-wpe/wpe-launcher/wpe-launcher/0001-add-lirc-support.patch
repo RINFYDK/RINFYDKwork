@@ -1,0 +1,76 @@
+diff --git a/launcher/CMakeLists.txt b/launcher/CMakeLists.txt
+index 2c68e60..7877328 100644
+--- a/launcher/CMakeLists.txt
++++ b/launcher/CMakeLists.txt
+@@ -1,7 +1,7 @@
+ add_executable(WPELauncher
+     main.cpp
+ )
+-
++add_definitions(-DHAS_LIRC_SUPPORT)
+ target_include_directories(WPELauncher PUBLIC
+     ${WPE_WEBKIT_INCLUDE_DIRS}
+ )
+diff --git a/launcher/main.cpp b/launcher/main.cpp
+index eb126d7..9dd8d31 100644
+--- a/launcher/main.cpp
++++ b/launcher/main.cpp
+@@ -5,6 +5,19 @@
+ #include <glib.h>
+ #include <initializer_list>
+ 
++#ifdef HAS_LIRC_SUPPORT
++#include <string.h>
++#include <unistd.h>
++#include <fcntl.h>
++#include <time.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <sys/socket.h>
++#include <sys/un.h>
++
++#define LIRCD_SOCKET_PATH "/var/run/lirc/lircd"
++#endif
++
+ WKPageNavigationClientV0 s_navigationClient = {
+     { 0, nullptr },
+     // decidePolicyForNavigationAction
+@@ -70,9 +83,24 @@ WKViewClientV0 s_viewClient = {
+ };
+ 
+ int main(int argc, char* argv[])
+-{
+-    GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
++{   
++#ifdef HAS_LIRC_SUPPORT
++    int fd;
++    struct sockaddr_un addr;
++
++    addr.sun_family = AF_UNIX;
++    strcpy(addr.sun_path, LIRCD_SOCKET_PATH);
++    fd = socket(AF_UNIX, SOCK_STREAM, 0);
++    if (fd == -1) {
++        perror("socket");
++    };
++    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
++        perror("connect");
++    };
++#endif
+ 
++    GMainLoop* loop = g_main_loop_new(nullptr, FALSE);
++    
+     auto contextConfiguration = WKContextConfigurationCreate();
+     auto injectedBundlePath = WKStringCreateWithUTF8CString("/usr/lib/libWPEInjectedBundle.so");
+     WKContextConfigurationSetInjectedBundlePath(contextConfiguration, injectedBundlePath);
+@@ -144,5 +172,11 @@ int main(int argc, char* argv[])
+     WKRelease(context);
+     WKRelease(preferences);
+     g_main_loop_unref(loop);
++
++#ifdef HAS_LIRC_SUPPORT
++    if (fd > 0) {
++      close(fd);
++    }
++#endif
+     return 0;
+ }

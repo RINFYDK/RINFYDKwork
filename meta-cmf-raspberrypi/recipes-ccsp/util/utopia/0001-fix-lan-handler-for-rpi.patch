@@ -1,0 +1,15 @@
+diff --git a/source/scripts/init/service.d/lan_handler.sh b/source/scripts/init/service.d/lan_handler.sh
+index 2282df2..af172c0 100755
+--- a/source/scripts/init/service.d/lan_handler.sh
++++ b/source/scripts/init/service.d/lan_handler.sh
+@@ -225,0 +226,10 @@ case "$1" in
++        PHY_BRIDGE_IFNAME=`syscfg get lan_ifname`
++        PHY_ETH_IFNAMES=`syscfg get lan_ethernet_physical_ifnames`
++	IFS=' ' read -r -a PHY_ETH_IFNAME_ARRAY <<< "$PHY_ETH_IFNAMES"
++	for PHY_ETH_IFNAME in "${PHY_ETH_IFNAME_ARRAY[@]}"
++	do
++	    echo "LAN HANDLER : PHY_ETH_IFNAME = $PHY_ETH_IFNAME"
++            ifconfig $PHY_ETH_IFNAME up
++            brctl addif $PHY_BRIDGE_IFNAME $PHY_ETH_IFNAME
++	done
++

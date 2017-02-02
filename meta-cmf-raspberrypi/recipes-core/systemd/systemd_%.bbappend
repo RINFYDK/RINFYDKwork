@@ -1,0 +1,5 @@
+do_install_append_rpi() {
+    # disable restart of udev and timesyncd services on failure for now
+    sed -i -e 's/^Restart=always/Restart=no/' ${D}/lib/systemd/system/systemd-udevd.service
+    echo "TimeoutSec=10" >> ${D}/lib/systemd/system/systemd-udevd.service
+}

@@ -1,0 +1,73 @@
+diff --git a/source/firewall/firewall_priv.c b/source/firewall/firewall_priv.c
+index 39eb9b3..6015777 100644
+--- a/source/firewall/firewall_priv.c
++++ b/source/firewall/firewall_priv.c
+@@ -42,27 +42,35 @@
+ 
+ void do_device_based_pp_disabled_appendrule(FILE *fp, const char *ins_num, const char *lan_ifname, const char *query)
+ {
++#if !defined(_PLATFORM_RASPBERRYPI_)
+      fprintf(fp, ":pp_disabled_%s - [0:0]\n", ins_num);
+      fprintf(fp, "-A pp_disabled -j pp_disabled_%s\n", ins_num);
+      fprintf(fp, "-A pp_disabled -i %s -m mac --mac-source %s -p tcp -m multiport --dports 80,443 -m state --state ESTABLISHED -m connbytes --connbytes 0:5 --connbytes-dir original --connbytes-mode packets -j GWMETA --dis-pp\n", lan_ifname, query);
++#endif
+ }
+ 
+ void do_device_based_pp_disabled_ip_appendrule(FILE *fp, const char *ins_num, const char *ipAddr)
+ {
++#if !defined(_PLATFORM_RASPBERRYPI_)
+ 	fprintf(fp, "-A pp_disabled_%s -d %s -p tcp -m multiport --sports 80,443 -m state --state ESTABLISHED -m connbytes --connbytes 0:5 --connbytes-dir reply --connbytes-mode packets -j GWMETA --dis-pp\n", ins_num, ipAddr);
++#endif
+ }
+ 
+ int do_parcon_mgmt_lan2wan_pc_site_appendrule(FILE *fp)
+ {
++#if !defined(_PLATFORM_RASPBERRYPI_)
+ 	fprintf(fp, "-A lan2wan_pc_site -p tcp -m multiport --dports 80,443,8080 -m state --state ESTABLISHED -m "
+ 				"connbytes --connbytes 0:5 --connbytes-dir original --connbytes-mode packets -j GWMETA --dis-pp\n");
++#endif
+ 	return 1;
+ }
+ 
+ void do_parcon_mgmt_lan2wan_pc_site_insertrule(FILE *fp, int index, char *nstdPort)
+ {
++#if !defined(_PLATFORM_RASPBERRYPI_)
+ 	fprintf(fp, "-I lan2wan_pc_site %d -p tcp -m tcp --dport %s -m state --state ESTABLISHED -m "
+ 			"connbytes --connbytes 0:5 --connbytes-dir original --connbytes-mode packets -j GWMETA "
+ 			"--dis-pp\n", index, nstdPort);
++#endif
+ }
+ 
+--- a/source/firewall/firewall.c	2016-12-26 16:03:10.534393355 +0530
++++ b/source/firewall/firewall.c	2016-12-26 16:13:18.642408669 +0530
+@@ -5428,10 +5428,15 @@ InternetAccessPolicyNext3:
+                else if (0 == strncmp(url, "https://", STRLEN_HTTPS_URL_PREFIX)) {
+                   host_name_offset = STRLEN_HTTPS_URL_PREFIX;
+                }
+-
++#if defined(_PLATFORM_RASPBERRYPI_)
++               snprintf(str, sizeof(str), 
++                        "-A %s -p tcp -m tcp --dport 80 -d \"%s\" -j %s",
++                        rules_table, url + host_name_offset, block_site);
++#else
+                snprintf(str, sizeof(str), 
+                         "-A %s -p tcp -m tcp --dport 80 -m httphost --host \"%s\" -j %s",
+                         rules_table, url + host_name_offset, block_site);
++#endif
+                fprintf(fp, "%s\n", str);
+ 
+                for(src_cnt; src_cnt <= srcNum; src_cnt++){
+@@ -6707,8 +6712,13 @@ static int do_parcon_mgmt_site_keywd(FIL
+                 }
+                 else
+                 {
++#if defined(_PLATFORM_RASPBERRYPI_)
++                    fprintf(fp, "-A lan2wan_pc_site -p tcp -m tcp --dport 80 -d \"%s\" -j %s\n", query + host_name_offset, drop_log);
++                    fprintf(fp, "-A lan2wan_pc_site -p tcp -m tcp --dport 443 -d \"%s\" -j %s\n", query + host_name_offset, drop_log);
++#else
+                     fprintf(fp, "-A lan2wan_pc_site -p tcp -m tcp --dport 80 -m httphost --host \"%s\" -j %s\n", query + host_name_offset, drop_log);
+                     fprintf(fp, "-A lan2wan_pc_site -p tcp -m tcp --dport 443 -m httphost --host \"%s\" -j %s\n", query + host_name_offset, drop_log);
++#endif
+ #ifdef CONFIG_CISCO_PARCON_WALLED_GARDEN
+                     if(iptype == 4)
+                     {

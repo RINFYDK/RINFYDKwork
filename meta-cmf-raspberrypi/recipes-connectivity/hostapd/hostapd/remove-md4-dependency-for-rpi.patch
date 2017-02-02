@@ -1,0 +1,15 @@
+--- hostapd-2.4/src/crypto/crypto_openssl.c.orig	2016-07-12 15:52:56.297621676 +0530
++++ hostapd-2.4/src/crypto/crypto_openssl.c		2016-07-12 15:53:33.461612695 +0530
+@@ -95,7 +95,11 @@
+ 
+ int md4_vector(size_t num_elem, const u8 *addr[], const size_t *len, u8 *mac)
+ {
+-	return openssl_digest_vector(EVP_md4(), num_elem, addr, len, mac);
++#ifdef OPENSSL_NO_MD4
++       return -1;
++#else
++        return openssl_digest_vector(EVP_md4(), num_elem, addr, len, mac);
++#endif
+ }
+ 
+ 

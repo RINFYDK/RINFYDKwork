@@ -1,0 +1,921 @@
+diff --git a/recipes-extended/gst-plugins-playersinkbin/files/Makefile.am b/recipes-extended/gst-plugins-playersinkbin/files/Makefile.am
+index 969a5b6..b07b9e4 100644
+--- a/recipes-extended/gst-plugins-playersinkbin/files/Makefile.am
++++ b/recipes-extended/gst-plugins-playersinkbin/files/Makefile.am
+@@ -11,6 +11,8 @@ SUBDIRS =
+ AM_CPPFLAGS = -pthread -Wall
+ plugin_LTLIBRARIES = libgstplayersinkbin.la
+ libgstplayersinkbin_la_SOURCES = gstplayersinkbin.c
++libgstplayersinkbin_la_SOURCES += playersinkbinpmtinfo.c
++libgstplayersinkbin_la_SOURCES += playersinkbinstreaminfo.c
+ libgstplayersinkbin_la_CFLAGS =  $(GST_CFLAGS)
+ libgstplayersinkbin_la_LDFLAGS = $(GST_LIBS)
+ libgstplayersinkbin_la_LDFLAGS += -module -avoid-version
+diff --git a/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.c b/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.c
+index ec465c7..94226a3 100644
+--- a/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.c
++++ b/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.c
+@@ -29,23 +29,57 @@
+ #include <gst/gst.h>
+ 
+ #include "gstplayersinkbin.h"
++#include "playersinkbinpmtinfo.h"
++#include <string.h>
+ 
+-#define VERSION "0.10.32"
+-#define MULTIPLE_AUDIO_LANG_SELECTION
++#ifndef VERSION
++#define VERSION "1.0"
++#endif
+ 
+ /* GST Enums for Plane and Resolution */
+ 
+ GType
+ playersink_gst_plane_get_type (void)
+ {
+-	GType playersink_gst_plane_type = 0;
++	static GType playersink_gst_plane_type = 0;
++	static const GEnumValue plane_types[] = {
++		{1, "Plane 1", "Pixel Plane 1"},
++		{2, "Plane 2", "Pixel Plane 2"},
++		{3, "Plane 3", "Pixel Plane 3"},
++		{4, "Plane 4", "Pixel Plane 4"},
++		{10, NULL, NULL}
++	};
++
++	if (!playersink_gst_plane_type) {
++		playersink_gst_plane_type =
++		    g_enum_register_static ("GstPlane", plane_types);
++	}
+ 	return playersink_gst_plane_type;
+ }
+ 
+ GType
+ playersink_gst_resolution_get_type (void)
+ {
+-	GType playersink_gst_resolution_type = 0;
++	static GType playersink_gst_resolution_type = 0;
++	static const GEnumValue resolution_types[] = {
++		{-1, "None to be configured", "none"},
++		{0, "480 interlaced at 60 Hz", "480i"},
++		{1, "480 progressive at 60 Hz", "480p"},
++		{2, "576 interlaced at 50 Hz", "576i"},
++		{3, "576 progressive at 50 Hz", "576p"},
++		{4, "720 progressive at 60 Hz", "720p"},
++		{5, "720 progressive at 50 Hz", "720p50"},
++		{6, "1080 interlaced at 60 Hz", "1080i"},
++		{7, "1080 interlaced at 50 Hz", "1080i50"},
++		{8, "1080 progressive at 60 Hz", "1080p"},
++		{9, "1080 progressive at 50 Hz", "1080p50"},
++		{10, NULL, NULL}
++	};
++
++	if (!playersink_gst_resolution_type) {
++		playersink_gst_resolution_type =
++		    g_enum_register_static ("GstResolution", resolution_types);
++	}
+ 	return playersink_gst_resolution_type;
+ }
+ 
+@@ -54,7 +88,7 @@ playersink_gst_resolution_get_type (void)
+ #define DEFAULT_PREFERRED_LANGUAGE "eng"
+ #define DEFAULT_SHOW_LAST_FRAME 1
+ #define DEFAULT_VIDEO_RECTANGLE "0,0,0,0"
+-#define DEFAULT_VIDEO_DECODER_HANDLE -1
++#define DEFAULT_VIDEO_DECODER_HANDLE NULL
+ #define DEFAULT_PLANE 1
+ #define DEFAULT_PLAY_SPEED 1
+ #define DEFAULT_CURRENT_POSITION 0
+@@ -63,40 +97,31 @@ playersink_gst_resolution_get_type (void)
+ #define DEFAULT_AUDIO_MUTE 0
+ #define DEFAULT_VOLUME 1.0
+ 
+-/* SOC CHANGES: Names of gstreamer Elements to be contained in the bin,add/remove appropriately based on platform */
+-#define VIDEO_PLANE	7
+-
+-/* Plane Values for Intel platform. Reference ismd-vidsink gstreamer element */
+-#define UPPA 5
+-#define UPPB 6
+-#define UPPC 7
+-#define UPPD 8
+-
+-#define PLANE_1 1
+-#define PLANE_2 2
+-#define PLANE_3 3
+-#define PLANE_4 4
+-
+-const char DEMUX[] = "flutsdemux";
++/* Names of gstreamer Elements to be contained in the bin,
++ * add/remove appropriately based on platform
++ */
++const char VSINK[] = "autovideosink";
+ const char ASINK[] = "autoaudiosink";
+-const char VDEC[] = "ffdec_mpeg2video";
+-const char VSINK[] = "fbdevsink";
+-/* End SOC CHANGES */
++const char DBIN[] = "decodebin";
++const char VCONV[] = "videoconvert";
++const char ACONV[] = "audioconvert";
++const char ARESAM[] = "audioresample";
+ 
+ #define GSTPLAYERSINKBIN_EVENT_HAVE_VIDEO 0x01
+ #define GSTPLAYERSINKBIN_EVENT_HAVE_AUDIO 0x02
+-#define GSTPLAYERSINKBIN_EVENT_FIRST_VIDEO_FRAME 0x03	
++#define GSTPLAYERSINKBIN_EVENT_FIRST_VIDEO_FRAME 0x03
+ #define GSTPLAYERSINKBIN_EVENT_FIRST_AUDIO_FRAME 0x04
+ 
+ static void gst_decode_bin_dispose (GObject * object);
++#ifndef USE_GST1
+ static void gst_decode_bin_finalize (GObject * object);
++#endif
+ 
+ #if defined(ENABLE_AUDIO_REMOVAL_FOR_TRICK_MODES)
+ static void createLinkAudioChain (GstPlayerSinkBin *playersinkbin);
+ static void deleteUnlinkAudioChain (GstPlayerSinkBin *playersinkbin);
+ #endif
+ 
+-void ismd_audio_sink_statuscb(GstElement * ismd_audsink, gint status, gpointer data);
+ GST_DEBUG_CATEGORY_STATIC (gst_player_sinkbin_debug);
+ #define GST_CAT_DEFAULT gst_player_sinkbin_debug
+ 
+@@ -104,9 +129,7 @@ static GstStaticPadTemplate  playersink_bin_sink_template =
+     GST_STATIC_PAD_TEMPLATE ("sink",
+                              GST_PAD_SINK,
+                              GST_PAD_ALWAYS,
+-                             GST_STATIC_CAPS(
+-                             "video/mpegts;"
+-                             "video/vnd.dlna.mpeg-tts;"));
++                             GST_STATIC_CAPS("ANY"));
+ 
+ /* Properties */
+ enum
+@@ -140,7 +163,11 @@ static GstBinClass *parent_class;
+ static GstStaticCaps default_raw_caps = GST_STATIC_CAPS (DEFAULT_RAW_CAPS);
+ 
+ static void gst_player_sinkbin_set_property (GObject * object, guint prop_id,
++#ifdef USE_GST1
++        const GValue * value, GParamSpec * pspec);
++#else
+         GValue * value, GParamSpec * pspec);
++#endif
+ static void gst_player_sinkbin_get_property (GObject * object, guint prop_id,
+         GValue * value, GParamSpec * pspec);
+ 
+@@ -158,14 +185,137 @@ static gboolean gst_player_sinkbin_sink_event (GstPad * pad, GstObject * parent,
+ static void
+ gst_player_sinkbin_class_init (GstPlayerSinkBinClass * klass)
+ {
+-	return;	
++	GObjectClass *gobj_klass;
++	GstElementClass *gstele_klass;
++	GstBinClass *gstbin_klass;
++
++	gobj_klass = (GObjectClass *) klass;
++	gstele_klass = (GstElementClass *) klass;
++	gstbin_klass = (GstBinClass *) klass;
++
++	parent_class = g_type_class_peek_parent (klass);
++
++	gobj_klass->dispose = gst_decode_bin_dispose;
++#ifndef USE_GST1
++	gobj_klass->finalize = gst_decode_bin_finalize;
++#endif
++	gobj_klass->set_property = gst_player_sinkbin_set_property;
++	gobj_klass->get_property = gst_player_sinkbin_get_property;
++
++	/* Install Properties for the bin */
++	g_object_class_install_property (gobj_klass, PROP_PROGRAM_NUM,
++	                                 g_param_spec_uint("program-num",
++                                                           "program-num",
++                                                           "Program num to set",
++	                                                    1, G_MAXUINT16,
++                                                            DEFAULT_PROGRAM_NUM, G_PARAM_READWRITE));
++
++	g_object_class_install_property (gobj_klass, PROP_AVAILABLE_LANGUAGES,
++	                                 g_param_spec_string("available-languages",
++                                                             "available-languages",
++	                                                     "available languages in program as comma separated list",
++	                                                      DEFAULT_AVAILABLE_LANGUAGES, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_PREFERRED_LANGUAGE,
++	                                 g_param_spec_string("preferred-language",
++                                                             "preferred-language",
++	                                                     "Preferred language which is to be set",
++                                                              DEFAULT_PREFERRED_LANGUAGE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_PMT_INFO,
++	      g_param_spec_object ("pmt-info",
++                                   "pmt information",
++                                   "GObject with its properties containing info from TS PMT "
++                       	           "currently selected program and its streams and descriptors",
++                                    PLAYERSINKBIN_TYPE_PMT_INFO,
++                                    G_PARAM_READABLE));
++
++
++	g_object_class_install_property (gobj_klass, PROP_VIDEO_DECODE_HANDLE,
++	                                 g_param_spec_pointer ("video-decode-handle",
++                                                               "video-decode-handle",
++                                                               "Video-decoderhandle which is in use", G_PARAM_READABLE));
++
++
++	g_object_class_install_property (gobj_klass, PROP_SHOW_LAST_FRAME,
++	                                 g_param_spec_boolean ("show-last-frame",
++                                                               "show-last-frame",
++	                                                       "Keep displaying the last frame rather than a black one", DEFAULT_SHOW_LAST_FRAME,
++                                                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_VIDEO_RECTANGLE,
++	                                 g_param_spec_string ("rectangle",
++                                                              "Destination rectangle",
++                                                              "The destination rectangle, (0,0,0,0) full screen",DEFAULT_VIDEO_RECTANGLE,
++	                                                      G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_PLANE,
++	                                 g_param_spec_enum ("plane", "Plane used for rendering",
++	                                         "Define Plane to be used by the platform ",GST_TYPE_PLANE,
++	                                         DEFAULT_PLANE, G_PARAM_READWRITE));
++
++	g_object_class_install_property (gobj_klass, PROP_PLAY_SPEED,
++	                                 g_param_spec_float("play-speed",
++                                                            "play speed", "Play Speed to be set or current play speed",
++                                                             G_MINFLOAT, G_MAXFLOAT, DEFAULT_PLAY_SPEED, G_PARAM_READWRITE));
++
++	g_object_class_install_property (gobj_klass, PROP_CURRENT_POSITION,
++	                                 g_param_spec_double("current-position",
++                                                             "current position", "Current play position in the stream",
++                                                              G_MINDOUBLE, G_MAXDOUBLE,
++                                                              DEFAULT_PROGRAM_NUM, G_PARAM_READWRITE));
++
++	g_object_class_install_property (gobj_klass, PROP_RESOLUTION,
++	                                 g_param_spec_enum ("resolution",
++                                                            "Resolution to be set", "Define the resolution to be used",
++                                                            GST_TYPE_RESOLUTION, DEFAULT_RESOLUTION, G_PARAM_READWRITE));
++
++	g_object_class_install_property (gobj_klass, PROP_VIDEO_MUTE,
++	                                 g_param_spec_boolean ("video-mute", "video-mute", "mute/unmute video",
++      	                                                       DEFAULT_VIDEO_MUTE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_AUDIO_MUTE,
++	                                 g_param_spec_boolean ("audio-mute",
++                                                               "audio-mute","mute/unmute audio",
++                                                                DEFAULT_AUDIO_MUTE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
++
++	g_object_class_install_property (gobj_klass, PROP_VOLUME,
++	                                 g_param_spec_double("volume",
++                                                             "volume", "Audio volume to be set",
++                                                             1.0, G_MAXDOUBLE, DEFAULT_VOLUME, G_PARAM_READWRITE));
++
++
++	gst_element_class_add_pad_template (gstele_klass, gst_static_pad_template_get (&playersink_bin_sink_template));
++
++	gst_element_class_set_details_simple (gstele_klass,
++                                             "Player Sink Bin", "Demux/Decoder",
++                                             "Demux and decode mpegts", "RDK-M");
++	/* gstele_klass->change_state =
++	     GST_DEBUG_FUNCPTR (gst_player_sinkbin_change_state);
++
++	 gstbin_klass->handle_message =
++	     GST_DEBUG_FUNCPTR (gst_player_sinkbin_handle_message);
++	*/
++  /**
++   * Signal that the video/audio has been reached. This signal is emited from
++   * the onDemuxSrcPadAdded thread.
++   */
++    gst_player_sinkbin_signals[SIGNAL_PLAYERSINKBIN] = g_signal_new ("event-callback", G_TYPE_FROM_CLASS (gstele_klass),
++                                                       (GSignalFlags)(G_SIGNAL_RUN_LAST | G_SIGNAL_ACTION),
++                                                       G_STRUCT_OFFSET (GstPlayerSinkBinClass, playersinkbinstatuscb),
++                                                       NULL, NULL,
++#ifdef USE_GST1
++                                                       g_cclosure_marshal_VOID__INT, G_TYPE_NONE, 1, G_TYPE_INT);
++#else
++                                                       gst_marshal_VOID__INT, G_TYPE_NONE, 1, G_TYPE_INT);
++#endif
+ }
+ 
+ 
+ #if defined(ENABLE_AUDIO_REMOVAL_FOR_TRICK_MODES)
+ static void
+ createLinkAudioChain (
+-	GstPlayerSinkBin *playersinkbin
++	GstPlayerSinkBin *psinkbin
+ ) {
+ 	return;
+ }
+@@ -173,9 +323,9 @@ createLinkAudioChain (
+ 
+ static void
+ deleteUnlinkAudioChain (
+-	GstPlayerSinkBin *playersinkbin
++	GstPlayerSinkBin *psinkbin
+ ) {
+-	return;	
++	return;
+ }
+ #endif
+ 
+@@ -187,21 +337,29 @@ deleteUnlinkAudioChain (
+  */
+ void onDemuxSrcPadAdded(GstElement* element, GstPad *demux_src_pad, gpointer data)
+ {
+-	return;
+-}
+-
+-void ismd_mpeg2_viddec_statusCB(GstElement * ismd_mpeg2_viddec, gint status, gpointer data)
+-{
+-	return;
+-}
+-
+-void ismd_audio_sink_statuscb(GstElement * ismd_audsink, gint status, gpointer data)
+-{
+-	return;
++    GstPlayerSinkBin *sinkbin = (GstPlayerSinkBin *) data;
++    GstPad *sinkPad = NULL;
++    GstCaps* caps = gst_pad_get_current_caps(demux_src_pad);
++    const gchar *padname = gst_structure_get_name(gst_caps_get_structure (caps, 0));
++
++
++    g_print ("on_auto_pad_added pad:%s pad_cap_name_pad:%s\n", GST_DEBUG_PAD_NAME(demux_src_pad),padname);
++    if(g_strrstr ( gst_pad_get_name(demux_src_pad), "src_0") || g_strrstr(padname, "video"))
++    {
++	    sinkPad = gst_element_get_static_pad(sinkbin->videosink_queue, "sink");
++	    gst_pad_link(demux_src_pad, sinkPad);
++	    gst_object_unref(sinkPad);
++	    gst_element_sync_state_with_parent(sinkbin->video_sink);
++    }
++    if(g_strrstr ( gst_pad_get_name(demux_src_pad), "src_1") || g_strrstr(padname, "audio"))
++    {
++	    sinkPad = gst_element_get_static_pad(sinkbin->audiosink_queue, "sink");
++	    gst_pad_link(demux_src_pad, sinkPad);
++	    gst_object_unref(sinkPad);
++	    gst_element_sync_state_with_parent(sinkbin->audio_sink);
++    }
+ }
+ 
+-/* END SOC CHANGES */
+-
+ /* initialize the new element
+  * instantiate pads and add them to element
+  * set pad calback functions
+@@ -210,88 +368,362 @@ void ismd_audio_sink_statuscb(GstElement * ismd_audsink, gint status, gpointer d
+ static void
+ gst_player_sinkbin_init (GstPlayerSinkBin* sinkbin)
+ {
+-	return;
++	GstPad *pad;
++	GstPad *gpad;
++	GstPadTemplate *pad_tmpl;
++
++	/* Initialize properties */
++
++	sinkbin->prog_no = DEFAULT_PROGRAM_NUM;
++	strncpy(sinkbin->available_languages,DEFAULT_AVAILABLE_LANGUAGES,sizeof(DEFAULT_AVAILABLE_LANGUAGES));
++	strncpy(sinkbin->preffered_language,DEFAULT_PREFERRED_LANGUAGE,sizeof(DEFAULT_PREFERRED_LANGUAGE));
++	sinkbin->show_last_frame = DEFAULT_SHOW_LAST_FRAME;
++	sinkbin->video_decode_handle = DEFAULT_VIDEO_DECODER_HANDLE;
++	strncpy(sinkbin->video_rectangle,DEFAULT_VIDEO_RECTANGLE,sizeof(DEFAULT_VIDEO_RECTANGLE));
++	sinkbin->plane = DEFAULT_PLANE;
++	sinkbin->video_mute = DEFAULT_VIDEO_MUTE;
++	sinkbin->play_speed = DEFAULT_PLAY_SPEED;
++	sinkbin->current_position = DEFAULT_CURRENT_POSITION;
++	sinkbin->resolution = DEFAULT_RESOLUTION;
++	sinkbin->audio_mute = DEFAULT_AUDIO_MUTE;
++	sinkbin->volume = DEFAULT_VOLUME;
++
++
++	/* create gstreamer element factories in to the bin*/
++        gboolean ret=TRUE;
++	sinkbin->decodebin = gst_element_factory_make(DBIN, "player_decodebin");
++	if (!sinkbin->decodebin)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate decodebin (%s)\n", DBIN);
++            ret = FALSE;
++        }
++	sinkbin->video_convert = gst_element_factory_make(VCONV, "player_videoconvert");
++	if (!sinkbin->video_convert)  {
++             GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate video convert (%s)\n", VCONV);
++	     ret = FALSE;
++        }
++	sinkbin->audio_convert = gst_element_factory_make(ACONV, "player_audioconvert");
++	if (!sinkbin->audio_convert)  {
++             GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate audio convert (%s)\n", ACONV);
++	     ret = FALSE;
++        }
++	sinkbin->audio_resample = gst_element_factory_make(ARESAM, "player_audioresample");
++	if (!sinkbin->audio_resample)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate audio resample (%s)\n", ARESAM);
++            ret = FALSE;
++        }
++	sinkbin->decodebin_queue = gst_element_factory_make("queue", "player_decodebin_queue");
++	if (!sinkbin->decodebin_queue)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate decodebin queue\n");
++            ret = FALSE;
++	}
++	sinkbin->audiosink_queue = gst_element_factory_make("queue", "player_audiosink_queue");
++	if (!sinkbin->audiosink_queue)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate audiosink queue\n");
++            ret = FALSE;
++        }
++	sinkbin->videosink_queue = gst_element_factory_make("queue", "player_videosink_queue");
++	if (!sinkbin->videosink_queue)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate videosink queue\n");
++            ret = FALSE;
++        }
++	sinkbin->video_sink = gst_element_factory_make(VSINK, "player_vsink");
++	if (!sinkbin->video_sink)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate videosink (%s)\n", VSINK);
++            ret = FALSE;
++        }
++	sinkbin->audio_sink = gst_element_factory_make(ASINK, "player_asink");
++	if (!sinkbin->audio_sink)  {
++            GST_ERROR_OBJECT(sinkbin,"playersinkbin : Failed to instantiate audiosink (%s)\n", ASINK);
++            ret = FALSE;
++        }
++
++	/* releasing all GstElements created in case of failure of anyone of them */
++        if(ret == FALSE) {
++	    if(sinkbin->decodebin) gst_object_unref (GST_OBJECT (sinkbin->decodebin));
++	    if(sinkbin->video_convert) gst_object_unref (GST_OBJECT (sinkbin->video_convert));
++	    if(sinkbin->audio_convert) gst_object_unref (GST_OBJECT (sinkbin->audio_convert));
++	    if(sinkbin->audio_resample) gst_object_unref (GST_OBJECT (sinkbin->audio_resample));
++	    if(sinkbin->decodebin_queue) gst_object_unref (GST_OBJECT (sinkbin->decodebin_queue));
++	    if(sinkbin->audiosink_queue) gst_object_unref (GST_OBJECT (sinkbin->audiosink_queue));
++	    if(sinkbin->videosink_queue) gst_object_unref (GST_OBJECT (sinkbin->videosink_queue));
++	    if(sinkbin->video_sink) gst_object_unref (GST_OBJECT (sinkbin->video_sink));
++	    if(sinkbin->audio_sink) gst_object_unref (GST_OBJECT (sinkbin->audio_sink));
++        }
++
++	/* register call back to link appropriate sinkpad with decodebin element */
++	g_signal_connect(sinkbin->decodebin, "pad-added", G_CALLBACK (onDemuxSrcPadAdded), sinkbin);
++
++	/* Create video decoding pipeline factories */
++        gst_bin_add_many(GST_BIN(sinkbin), sinkbin->decodebin, sinkbin->audiosink_queue, sinkbin->videosink_queue, NULL);
++        gst_bin_add_many(GST_BIN(sinkbin), sinkbin->video_convert, sinkbin->video_sink, NULL);
++        gst_bin_add_many(GST_BIN(sinkbin), sinkbin->audio_convert, sinkbin->audio_resample, sinkbin->audio_sink, NULL);
++
++	if( !gst_element_link_many(sinkbin->audiosink_queue, sinkbin->audio_convert, sinkbin->audio_resample, sinkbin->audio_sink, NULL)){
++             GST_ERROR_OBJECT(sinkbin, "playersinkbin: Failed to link audiosink queue, audio convert, audio resample and audio sink\n");
++	     return;
++        }
++
++	if( !gst_element_link_many(sinkbin->videosink_queue, sinkbin->video_convert, sinkbin->video_sink, NULL)) {
++             GST_ERROR_OBJECT(sinkbin, "playersinkbin: Failed to link videosink queue, video convert and video sink\n");
++	     return;
++        }
++	/* get the sinkpad of demux and ghost it */
++	pad = gst_element_get_static_pad (sinkbin->decodebin, "sink");
++
++	/* get the pad template */
++	pad_tmpl = gst_static_pad_template_get (&playersink_bin_sink_template);
++
++	/* ghost the sink pad to ourself */
++	gpad = gst_ghost_pad_new_from_template ("sink", pad, pad_tmpl);
++	gst_pad_set_active (gpad, TRUE);
++	gst_element_add_pad (GST_ELEMENT (sinkbin), gpad);
++
++	gst_object_unref (pad_tmpl);
++	gst_object_unref (pad);
+ }
+ 
+-static void gst_decode_bin_dispose (GObject * object)
++static void gst_decode_bin_dispose (GObject * obj)
+ {
+-	return;
+-}
++	GstPlayerSinkBin* psinkbin = GST_PLAYER_SINKBIN(obj);
+ 
+-static void gst_decode_bin_finalize (GObject * object)
+-{
+-	return;
+-}
++	if (psinkbin->caps)
++		gst_caps_unref (psinkbin->caps);
+ 
+-static void gst_player_sinkbin_get_pmtinfo(GstPlayerSinkBin* playersinkbin,GValue * value)
+-{
+-	return;
++	G_OBJECT_CLASS (parent_class)->dispose (obj);
+ }
+ 
+-/**
+-* Map the plane to ISMD plane
+-*playersinkbin has the following values which are maped to ismd_vidsink value
+-*                           (1): Pixel Plane 1    - Plane 1
+-*                           (2): Pixel Plane 2    - Plane 2
+-*                           (3): Pixel Plane 3    - Plane 3
+-*                           (4): Pixel Plane 4    - Plane 4
+-*ismd_vidsink has the following values
+-*                           (5): UPPA             - Universal Pixel Plane A
+-*                           (6): UPPB             - Universal Pixel Plane B
+-*                           (7): UPPC             - Universal Pixel Plane C
+-*                           (8): UPPD             - Universal Pixel Plane D
+-**/
+-static gint mapToISMDplane(gint playersinkbin_plane)
++#ifndef USE_GST1
++static void gst_decode_bin_finalize (GObject * obj)
+ {
+-	gint plane = VIDEO_PLANE;
+-	return plane;
++	GstPlayerSinkBin* psinkbin = GST_PLAYER_SINKBIN(obj);
++
++	G_OBJECT_CLASS (parent_class)->finalize (obj);
+ }
++#endif
+ 
+-/**
+-* Map the plane From ISMD plane
+-*playersinkbin has the following values which are maped from ismd_vidsink value
+-*                           (1): Pixel Plane 1    - Plane 1
+-*                           (2): Pixel Plane 2    - Plane 2
+-*                           (3): Pixel Plane 3    - Plane 3
+-*                           (4): Pixel Plane 4    - Plane 4
+-*ismd_vidsink has the following values
+-*                           (5): UPPA             - Universal Pixel Plane A
+-*                           (6): UPPB             - Universal Pixel Plane B
+-*                           (7): UPPC             - Universal Pixel Plane C
+-*                           (8): UPPD             - Universal Pixel Plane D
+-**/
+-static gint mapFromISMDplane(gint playersinkbin_plane)
++static void gst_player_sinkbin_get_pmtinfo(GstPlayerSinkBin* playersinkbin,GValue * value)
+ {
+-	gint plane = DEFAULT_PLANE;
+-	return plane;
++    return;
+ }
+ 
+-gint video_decoder_handle=-1;
+ static void
+-gst_player_sinkbin_get_property (GObject * object, guint prop_id,
++gst_player_sinkbin_get_property (GObject * obj, guint prop_id,
+                                  GValue * value, GParamSpec * pspec)
+ {
+-	
++	GstPlayerSinkBin *psinkbin = GST_PLAYER_SINKBIN (obj);
++
++	/* SOC CHANGES: Get appropriate properties from soc gstreamer elements */
++	switch (prop_id) {
++	case PROP_PROGRAM_NUM:
++		/* Get the current program number from demux element
++		 * Example: g_object_get(psinkbin->demux,"program-number",&(psinkbin->prog_no),NULL);
++		 */
++		g_value_set_uint(value,psinkbin->prog_no);
++		break;
++	case PROP_PMT_INFO:
++		/* Get the pmt information from demux element. Assumes the pmt information from the soc element
++		 * is of the form defined in psinkbinpmtinfo.h.Change appropriately if not so.
++		 */
++		//gst_player_sinkbin_get_pmtinfo(psinkbin,value);
++		break;
++	case PROP_AVAILABLE_LANGUAGES:
++		/* Get the available languages filled after demux src pad callback
++		 */
++		g_value_set_string(value,psinkbin->available_languages);
++		break;
++	case PROP_PREFERRED_LANGUAGE:
++		/* Send back the user set preffered language.No SOC specific change required here. Use this value on demux src pad callback to link appropriate language pid
++		*/
++		g_value_set_string(value,psinkbin->preffered_language);
++		break;
++	case PROP_VIDEO_DECODE_HANDLE:
++		/* Get current decode handle from soc video decoder element
++		 * Example: g_object_get(psinkbin->video_decoder,"decode-handle",&(psinkbin->video_decode_handle),NULL);
++		*/
++		g_value_set_pointer(value, psinkbin->video_decode_handle);
++		break;
++	case PROP_SHOW_LAST_FRAME:
++		/* Get current value of show last frame from soc gstreamer element
++		 * Example: g_object_get(psinkbin->video_sink,"stop-keep-frame",&(psinkbin->show_last_frame),NULL);
++		*/
++		g_value_set_boolean( value,psinkbin->show_last_frame);
++		break;
++	case PROP_VIDEO_MUTE:
++		/* Get current value of video mute from soc gstreamer element
++		 * Example: g_object_get(psinkbin->video_sink,"mute",&(psinkbin->video_mute),NULL);
++		*/
++		g_value_set_boolean( value,psinkbin->video_mute);
++		break;
++	case PROP_VIDEO_RECTANGLE:
++		/* Get current value of the rectange from soc gstreamer element
++		     * Example: g_object_get(psinkbin->video_sink,"rectangle",&(psinkbin->video_rectangle),NULL);
++		 */
++		g_value_set_string(value,psinkbin->video_rectangle);
++		break;
++	case PROP_PLANE:
++		/* Get current plane used from soc element
++		 * Example: g_object_get(psinkbin->video_sink,"plane",&plane,NULL);
++		 * Map the soc plane value to generic property of this bin if types are different
++		*/
++		g_value_set_enum(value,psinkbin->plane);
++		break;
++	case PROP_PLAY_SPEED:
++		/* Get play speed from the soc specific gstreamer element if available. May not be needed at SOC level.
++		*/
++		g_value_set_float(value,psinkbin->play_speed);
++		break;
++	case PROP_CURRENT_POSITION:
++		/* Get appropriate value from soc gstreamer element
++		 * Example: g_object_get(psinkbin->video_sink,"currentPTS",&currentpts,NULL);
++		 * Map,if types/units are different,before setting on the generic property of this bin
++		 * psinkbin->current_position = currentpts/90000L;
++		*/
++		g_value_set_double(value,psinkbin->current_position);
++		break;
++	case PROP_RESOLUTION:
++		/* Get appropriate value from soc gstreamer element
++		 * Example: g_object_get(psinkbin->video_sink,"resolution",&resolution,NULL);
++		 * Format,if necessary,before setting on the generic property of the bin
++		 * psinkbin->resolution = resolution;
++		*/
++		g_value_set_enum(value,psinkbin->resolution);
++		break;
++	case PROP_AUDIO_MUTE:
++		/* Get current value of audio mute from soc gstreamer element
++		 * Example: g_object_get(psinkbin->audio_sink,"mute",&(psinkbin->audio_mute),NULL);
++		*/
++		g_value_set_boolean( value,psinkbin->audio_mute);
++		break;
++	case PROP_VOLUME:
++		/* Get current value of volume from soc gstreamer element
++		 * Example: g_object_get(psinkbin->audio_sink,"volume",&(psinkbin->volume),NULL);
++		*/
++		g_value_set_double( value,psinkbin->volume);
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
++		break;
++	}
++	/* END SOC CHANGES */
++
+ }
+ 
+ static void
+-gst_player_sinkbin_set_property (GObject * object, guint prop_id,
++gst_player_sinkbin_set_property (GObject * obj, guint prop_id,
++#ifdef USE_GST1
++                                 const GValue * value, GParamSpec * pspec)
++#else
+                                  GValue * value, GParamSpec * pspec)
++#endif
+ {
+-       
++
++	GstPlayerSinkBin *psinkbin = GST_PLAYER_SINKBIN (obj);
++
++	/* SOC CHANGES: Set appropriate properties on soc gstreamer elements*/
++	switch (prop_id) {
++	case PROP_PROGRAM_NUM:
++		psinkbin->prog_no = g_value_get_uint(value);
++		/*
++		* Set the program number on soc demux gstreamer element
++		 * Example: g_object_set(psinkbin->demux, "program-number", psinkbin->prog_no, NULL);
++		 */
++		break;
++	case PROP_PREFERRED_LANGUAGE:
++		memset(psinkbin->preffered_language, '\0', sizeof(psinkbin->preffered_language));
++		/* Use this setting to select the preferred audio language while dynamically linking source
++		* pads from demux,no SOC specific change required here */
++		strncpy(psinkbin->preffered_language, g_value_get_string (value),sizeof(psinkbin->preffered_language));
++		psinkbin->preffered_language[sizeof(psinkbin->preffered_language)-1] = '\0';
++		break;
++	case PROP_SHOW_LAST_FRAME:
++		psinkbin->show_last_frame = g_value_get_boolean(value);
++		/* This property keeps the last frame on screen while stop rather than a black frame.
++		* Set the appropriate property on soc gstreamer element.
++		 * Example: g_object_set(psinkbin->video_sink, "stop-keep-frame", psinkbin->show_last_frame, NULL);
++		 */
++		break;
++	case PROP_VIDEO_MUTE:
++		psinkbin->video_mute = g_value_get_boolean(value);
++		/* This property sets the video to mute
++		* Set the appropriate property on soc gstreamer element.
++		 * Example: g_object_set(psinkbin->video_sink, "mute",psinkbin->video_mute, NULL);
++		 */
++		break;
++	case PROP_VIDEO_RECTANGLE:
++		memset(psinkbin->video_rectangle, '\0', sizeof(psinkbin->video_rectangle));
++		strncpy(psinkbin->video_rectangle, g_value_get_string (value),sizeof(psinkbin->video_rectangle));
++		psinkbin->video_rectangle[sizeof(psinkbin->video_rectangle)-1] = '\0';
++		/* Parse,format if necessary and set video rectangle appropriately on soc gstreamer video sink element
++		 * g_object_set(psinkbin->video_sink,"rectangle",psinkbin->video_rectangle,NULL);
++		*/
++		break;
++	case PROP_PLANE:
++		psinkbin->plane = g_value_get_enum(value);
++		/* Map plane value to soc specific value and set on appropriate gstreamer element
++		 * Example: g_object_set(psinkbin->video_sink,"plane",psinkbin->plane,NULL);
++		*/
++		break;
++	case PROP_PLAY_SPEED:
++		psinkbin->play_speed = g_value_get_float(value);
++		/* Set on soc gstreamer element if necessary or send newsegment on the demux pad in case of rewind */
++		break;
++	case PROP_RESOLUTION:
++		psinkbin->resolution = g_value_get_enum(value);
++		/* Map resolution value to soc specific value and set on appropriate gstreamer element
++		 * Example:g_object_set(psinkbin->video_sink,"resolution",psinkbin->resolution,NULL);
++		*/
++		break;
++	case PROP_AUDIO_MUTE:
++		psinkbin->audio_mute = g_value_get_boolean(value);
++		/* This property sets the audio to mute
++		* Set the appropriate property on soc gstreamer element.
++		 * Example: g_object_set(psinkbin->audio_sink, "mute",psinkbin->audio_mute, NULL);
++		 */
++		break;
++	case PROP_VOLUME:
++		psinkbin->volume = g_value_get_double(value);
++		/* This property sets the audio volume level to requested volume
++		* Set the appropriate property on soc gstreamer element.
++		 * Example: g_object_set(psinkbin->audio_sink, "volume",psinkbin->volume, NULL);
++		 */
++		break;
++	default:
++		G_OBJECT_WARN_INVALID_PROPERTY_ID (obj, prop_id, pspec);
++		break;
++	}
++	/* END SOC CHANGES */
+ }
+ 
+ static gboolean
+ gst_player_sinkbin_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
+ {
+-	gboolean ret = 0;
+-	return ret;
++	gboolean retVal = 0;
++	return retVal;
+ }
+ 
+ GType
+ gst_player_sinkbin_get_type (void)
+ {
+ 	static GType gst_player_sinkbin_type = 0;
++	if (!gst_player_sinkbin_type) {
++		static const GTypeInfo gst_player_sinkbin_info = {
++			sizeof (GstPlayerSinkBinClass),
++			NULL,
++			NULL,
++			(GClassInitFunc) gst_player_sinkbin_class_init,
++			NULL,
++			NULL,
++			sizeof (GstPlayerSinkBin),
++			0,
++			(GInstanceInitFunc) gst_player_sinkbin_init,
++			NULL
++		};
++
++		gst_player_sinkbin_type =
++		    g_type_register_static (GST_TYPE_BIN, "GstPlayerSinkBin",
++		                            &gst_player_sinkbin_info, 0);
++	}
++
+ 	return gst_player_sinkbin_type;
+ }
+ 
+@@ -300,8 +732,15 @@ gst_player_sinkbin_get_type (void)
+ static gboolean
+ playersinkbin_init (GstPlugin * plugin)
+ {
+-	gboolean ret = 0;
+-	return ret;
++	/* debug category for fltering log messages
++	 *
++	 */
++	GST_DEBUG_CATEGORY_INIT (gst_player_sinkbin_debug, "playersinkbin",
++	                         0, "playersinkbin");
++
++	return gst_element_register (plugin, "playersinkbin", GST_RANK_NONE,
++	                             GST_TYPE_PLAYER_SINKBIN);
++
+ }
+ 
+ 
+@@ -320,7 +759,11 @@ playersinkbin_init (GstPlugin * plugin)
+ GST_PLUGIN_DEFINE (
+     GST_VERSION_MAJOR,
+     GST_VERSION_MINOR,
++#ifdef USE_GST1
++    playersinkbin,
++#else
+     "playersinkbin",
++#endif
+     "Demux and Decode Transport stream",
+     playersinkbin_init,
+     VERSION,
+diff --git a/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.h b/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.h
+index 48efc97..ec061e8 100644
+--- a/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.h
++++ b/recipes-extended/gst-plugins-playersinkbin/files/gstplayersinkbin.h
+@@ -34,62 +34,56 @@ G_BEGIN_DECLS
+     "subpicture/x-dvd; " \
+     "subpicture/x-pgs"
+ 
+-#define ENABLE_AUDIO_REMOVAL_FOR_TRICK_MODES 1
+-
+ typedef struct _GstPlayerSinkBin      GstPlayerSinkBin;
+ typedef struct _GstPlayerSinkBinClass GstPlayerSinkBinClass;
+ 
+-typedef struct _esinfo {
+-	guint es_pid;
+-	guint es_type;
+-	char lang[12];
+-} esinfo_t;
+-
++ typedef struct _esinfo {
++     guint es_pid;
++     guint es_type;
++ } esinfo_t;
+ 
+ struct _GstPlayerSinkBin
+ {
+-	GstBin parent_instance; /* Extend GstBin*/
+-
+-	/* SOC CHANGES: Add/Remove Bin Elements based on SOC specific media pipeline*/
+-	GstElement* demux;
+-	GstElement* video_decoder;
+-	GstElement* video_sink;
+-	GstElement* audio_sink;
+-	GstElement* m_vqueue;
+-	GstElement* m_aqueue;
+-	GstElement* m_aconvert;
+-	GstElement* m_adec;
+-	GstElement* m_resample;
+-	GstElement* vconvert;
+-	GstElement* m_vscalar;
+-        GstElement* m_vfilter;
+-	GstElement* m_vcaps;
+-	/* Generic Properties */
+-	gint prog_no; /* ReadWriteable */
+-	char available_languages[256]; /* Readable */
+-	char preffered_language[8];/* Writeable */
+-	gpointer video_decode_handle;/* Readable */
+-	gboolean video_mute; /* ReadWriteable */
+-	gboolean show_last_frame; /* ReadWriteable */
+-	char video_rectangle[16];/* ReadWriteable */
+-	gint plane;/* ReadWriteable */
+-	gfloat play_speed; /* ReadWriteable */
+-	gdouble current_position; /* ReadWriteable */
+-	gint resolution;/* ReadWriteable */
+-	gboolean audio_mute; /* ReadWriteable */
+-	gdouble volume;/* ReadWriteable */
+-
+-	GstCaps *caps;
+-
+-	/* Audio Stream Information */
+-	esinfo_t *m_esinfo;
+-	guint num_streams;
+-	guint num_audio_streams;
+-	guint preffered_audio_pid;
+-	gchar prefferd_pid_instring[8];
+-	gchar linkedaudiopadname[16];
+-
+-	gboolean m_bUseIsmdDemux;
++    GstBin parent_instance; /* Extend GstBin*/
++
++    /* SOC CHANGES: Add/Remove Bin Elements based on SOC specific media pipeline*/
++    GstElement* audio_sink;
++    GstElement* video_sink;
++    GstElement* video_convert;
++    GstElement* audio_convert;
++    GstElement* audio_resample;
++    GstElement* decodebin;
++    GstElement* decodebin_queue;
++    GstElement* audiosink_queue;
++    GstElement* videosink_queue;
++
++    GstElement* jitterbuffer;
++    /* Generic Properties */
++    guint prog_no; /* ReadWriteable */
++    char available_languages[256]; /* Readable */
++    char preffered_language[8];/* Writeable */
++    gpointer video_decode_handle;/* Readable */
++    gboolean video_mute; /* ReadWriteable */
++    gboolean show_last_frame; /* ReadWriteable */
++    char video_rectangle[40];/* ReadWriteable */
++    gint plane;/* ReadWriteable */
++    gfloat play_speed; /* ReadWriteable */
++    gdouble current_position; /* ReadWriteable */
++    gint resolution;/* ReadWriteable */
++    gboolean audio_mute; /* ReadWriteable */
++    gdouble volume;/* ReadWriteable */
++
++    GstCaps *caps;
++
++    gboolean pmtUpdatedOnce;
++
++    gboolean tts_mode;
++    guint pts_offset;
++    gboolean is_live;
++    guint num_streams;
++    esinfo_t *m_esinfo;
++    gboolean first_video; /* first video frame received */
++    gboolean first_audio; /* first audio frame received */
+ };
+ 
+ struct _GstPlayerSinkBinClass
+@@ -98,6 +92,8 @@ struct _GstPlayerSinkBinClass
+ 	void (*playersinkbinstatuscb)( GstPlayerSinkBin* gstplayersinkbinsrc, gint status, gpointer userdata);
+ };
+ 
++#define PBIN_UNUSED(x)  { volatile void *bstd_unused; bstd_unused = (void *)&(x); }
++
+ GType gst_player_sinkbin_get_type (void);
+ 
+ /* Enums for Plane and Resolution */

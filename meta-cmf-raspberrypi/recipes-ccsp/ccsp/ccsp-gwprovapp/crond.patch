@@ -1,0 +1,24 @@
+--- a/source/gw_prov_sm.c	2016-12-23 17:11:36.618400369 +0530
++++ b/source/gw_prov_sm.c	2016-12-23 17:14:56.726405408 +0530
+@@ -1951,7 +1951,9 @@ static int GWP_act_DocsisInited_callback
+ #if !defined(_PLATFORM_RASPBERRYPI_)
+     GWP_DocsisInited();
+ 
++#endif
+     system("sysevent set docsis-initialized 1");
++#if !defined(_PLATFORM_RASPBERRYPI_)
+ 
+     /* Must set the ESAFE Enable state before replying to the DocsisInit event */
+     eRouterModeTmp = eRouterMode;
+@@ -2064,6 +2066,11 @@ static int GWP_act_ProvEntry_callback()
+     //copy files that are needed by CCSP modules
+     system("cp /usr/ccsp/ccsp_msg.cfg /tmp");
+     system("touch /tmp/cp_subsys_ert");
++   
++    /* Below link is created because crond is expecting /crontabs/ dir instead of /var/spool/cron/crontabs */ 
++    system("ln -s /var/spool/cron/crontabs /");
++    /* directory /var/run/firewall because crond is expecting this dir to execute time specific blocking of firewall*/ 
++    system("mkdir -p /var/run/firewall");
+ 
+     system("/etc/utopia/utopia_init.sh");
+ 

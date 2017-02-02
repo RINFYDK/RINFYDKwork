@@ -1,0 +1,14 @@
+--- a/scripts/cosa_start_wifiagent.sh	2016-09-29 09:40:51.397500571 +0530
++++ b/scripts/cosa_start_wifiagent.sh	2016-09-29 09:49:58.089484862 +0530
+@@ -94,1 +94,12 @@
++# Reading country code
++file="/var/countryCode.txt"
++if [ -f $file ];
++then
++    echo "country code `cat $file`"
++else
++    echo 'US' > $file
++fi
++
++#setting up the regulatory domain
++/usr/sbin/iw reg set `cat $file`
