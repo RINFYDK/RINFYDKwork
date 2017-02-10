@@ -1,0 +1,6 @@
+-FILESEXTRAPATHS_prepend := "${THISDIR}/${BPN}:"
+-#SYSTEMD_AUTO_ENABLE_dhcp-client = "enable"
+-
+-FILES_${PN} += "${libdir}/mod_proxy_core.so"
+-FILES_${PN} += "${libdir}/mod_proxy_backend_http.so"
+-FILES_${PN} += "${libdir}/mod_proxy_backend_fastcgi.so"

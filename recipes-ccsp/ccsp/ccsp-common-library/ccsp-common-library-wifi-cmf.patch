@@ -1,0 +1,50 @@
+diff --git a/systemd_units/CcspLMLite.service b/systemd_units/CcspLMLite.service
+index 536b96e..9bf53c7 100644
+--- a/systemd_units/CcspLMLite.service
++++ b/systemd_units/CcspLMLite.service
+@@ -1,7 +1,7 @@
+ [Unit]
+ Description=CcspLMLite service
+ 
+-After=webpa.service
++After=CcspPandMSsp.service ccspwifiagent.service
+ 
+ [Service]
+ Type=forking
+@@ -16,4 +16,4 @@ Restart=always
+ StandardOutput=syslog+console
+ 
+ [Install]
+-WantedBy=wifi-initialized.target
++WantedBy=default.target
+diff --git a/systemd_units/ccspwifiagent.service b/systemd_units/ccspwifiagent.service
+index 86e469a..363deba 100644
+--- a/systemd_units/ccspwifiagent.service
++++ b/systemd_units/ccspwifiagent.service
+@@ -1,12 +1,20 @@
+ [Unit]
+-Description=Cosa service
+-After=CcspPandMSsp.service
++Description=Ccspwifi.service
++
++After=CcspPandMSsp.service CcspMoca.service
+ 
+ [Service]
+-Type=simple
+-WorkingDirectory=/usr/ccsp
+-ExecStart=/bin/sh -c '/usr/ccsp/wifi/cosa_start_wifiagent.sh &' 
+-RemainAfterExit=yes
++Type=forking
++Environment="Subsys=eRT."
++Environment="LOG4C_RCPATH=/etc"
++EnvironmentFile=/etc/device.properties
++WorkingDirectory=/usr/ccsp/wifi
++ExecStart=/usr/bin/CcspWifiSsp -subsys $Subsys
++ExecStop=/bin/sh -c 'echo "`date`: Stopping/Restarting CcspTandDSsp" >> ${PROCESS_RESTART_LOG}'
++Restart=always
+ 
+ StandardOutput=syslog+console
+ 
++[Install]
++WantedBy=default.target
++

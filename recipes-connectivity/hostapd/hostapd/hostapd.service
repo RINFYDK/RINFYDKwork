@@ -1,0 +1,12 @@
+[Unit]
+Description=Hostapd IEEE 802.11 AP, IEEE 802.1X/WPA/WPA2/EAP/RADIUS Authenticator
+After=ccspwifiagent.service lighttpd.service
+
+[Service]
+Type=forking
+#PIDFile=/run/hostapd.pid
+#ExecStart=hostapd -B /etc/hostapd0.conf /etc/hostapd1.conf
+ExecStart=/usr/sbin/hostapd -B /etc/hostapd0.conf
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,31 @@
+#
+# LAYER_CONF_VERSION is increased each time build/conf/bblayers.conf
+# changes incompatibly
+LCONF_VERSION = "6"
+
+BBPATH = "${TOPDIR}"
+BBFILES ?= ""
+RDKROOT := "${@os.path.abspath(os.path.dirname(d.getVar('FILE', True)) + '/../..')}"
+
+BBLAYERS ?= " \
+  ${RDKROOT}/meta \
+  ${RDKROOT}/meta-rdk \
+  ${RDKROOT}/meta-qt5 \
+  ${RDKROOT}/meta-browser \
+  ${RDKROOT}/meta-java \
+  ${RDKROOT}/meta-openembedded/meta-webserver \
+  ${RDKROOT}/meta-openembedded/meta-multimedia \
+  ${RDKROOT}/meta-openembedded/meta-filesystems \
+  ${RDKROOT}/meta-openembedded/meta-oe \
+  ${RDKROOT}/meta-openembedded/meta-networking \
+  ${RDKROOT}/meta-openembedded/meta-ruby \
+  ${RDKROOT}/meta-linaro/meta-linaro \
+  ${RDKROOT}/meta-linaro/meta-linaro-toolchain \
+  "
+
+# CPC requires dedicated licenses, we need to support build when CPC is not
+# available. So we only add meta-rdk-comcast layer if it exists locally.
+BBLAYERS =+ "${@'${RDKROOT}/meta-rdk-comcast' if os.path.isfile('${RDKROOT}/meta-rdk-comcast/conf/layer.conf') else ''}"
+#BBLAYERS += "${@'${RDKROOT}/meta-virtualization' if os.path.isfile('${RDKROOT}/meta-virtualization/conf/layer.conf') else ''}"
+BBLAYERS += "${@'${RDKROOT}/meta-rdk-restricted' if os.path.isfile('${RDKROOT}/meta-rdk-restricted/conf/layer.conf') else ''}"
+

@@ -1,0 +1,12 @@
+
+Common targets are:
+    rpi-hwup-image
+    rpi-basic-image
+    rpi-test-image
+    rdk-oss-image
+    rdk-generic-hybrid-image
+    rdk-generic-mediaclient-image
+    rdk-generic-broadband-image
+    rdk-generic-camera-image
+
+You can also run generated qemu images with a command like 'runqemu qemuarm'

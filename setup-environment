@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+#
+# RDK MANAGEMENT, LLC CONFIDENTIAL AND PROPRIETARY
+#
+# This file (and its contents) are the intellectual property of RDK Management, LLC.
+# It may not be used, copied, distributed or otherwise disclosed in whole or in
+# part without the express written permission of RDK Management, LLC.
+#
+# Copyright (c) 2015 RDK Management, LLC. All rights reserved.
+#
+
+unset _RDK_FLAVOR _OE_DISTRO
+
+TOP_DIR=$(pwd)
+export RDK_BSP_LAYER=none
+
+# default BSP layer is meta-cmf-raspberrypi for R-PI builds
+export RDK_BSP_LAYER=meta-cmf-raspberrypi
+
+if [ -d  $TOP_DIR/meta-cmf-rdkb ]; then
+    source meta-cmf-raspberrypi-infosys/conf/meta-cmf-rdkb-setup-environment
+elif [ -d  $TOP_DIR/meta-cmf ]; then
+    # add RDK WPE targets to conf file
+    # this step has to be added before calling meta-cmf/setup-environment
+    # so that the target is displayed to the user
+    if [ $(grep -c 'rdk-generic-mediaclient-wpe-image' $TOP_DIR/meta-rdk/conf/conf-notes.txt) -eq 0 ]; then
+        sed -i -e "/rdk-generic-mediaclient-image/a \ \ \ \ rdk-generic-mediaclient-wpe-image" $TOP_DIR/meta-rdk/conf/conf-notes.txt
+    fi
+    if [ $(grep -c 'rdk-generic-hybrid-wpe-image' $TOP_DIR/meta-rdk/conf/conf-notes.txt) -eq 0 ]; then
+        sed -i -e "/rdk-generic-hybrid-image/a \ \ \ \ rdk-generic-hybrid-wpe-image" $TOP_DIR/meta-rdk/conf/conf-notes.txt
+    fi
+
+    source meta-cmf-raspberrypi-infosys/conf/meta-cmf-setup-environment
+fi
+
+# at this point the current directory should be the build dir
+BUILD_DIR=$(pwd)
+
+if [[ -z $(grep 'meta-cmf-raspberrypi' conf/bblayers.conf) ]] && [[ -d  ../meta-cmf-raspberrypi ]]
+then
+    cat >> conf/bblayers.conf <<EOF
+BBLAYERS =+ "\${RDKROOT}/meta-cmf-raspberrypi"
+BBLAYERS =+ "\${RDKROOT}/meta-cmf-raspberrypi-infosys"
+EOF
+fi
+
+# Add meta-python if not already present, to supress parse errors
+# Ideally, this should be added to meta-rdk/conf/bblayers.conf.sample
+if [ $(grep '^BBLAYERS' conf/bblayers.conf | grep -c 'meta-python[^-]') -eq 0 ]; then
+    cat >> conf/bblayers.conf <<EOF
+BBLAYERS =+ "\${RDKROOT}/meta-openembedded/meta-python"
+EOF
+fi
+
+# Add meta-raspberrypi only if not already present.
+if [[ $(grep '^BBLAYERS' conf/bblayers.conf | grep -c 'meta-raspberrypi') -eq 0 ]] && [[ -d  ../meta-raspberrypi ]]
+then
+    cat >> conf/bblayers.conf <<EOF
+BBLAYERS =+ "\${RDKROOT}/meta-raspberrypi"
+EOF
+fi
+
+# ${_RDK_FLAVOR} value should be available from meta-rdk/setup-environment
+# Hack: sometimes _RDK_FLAVOR doesn't seem to persist in the environment.
+if [ -z "$_RDK_FLAVOR" ]; then
+    if [[ -z $(grep 'rdkv' conf/local.conf) ]]
+    then
+        _RDK_FLAVOR="rdkb"
+    else
+        _RDK_FLAVOR="rdkv"
+    fi
+fi
+
+if [ $(grep -s 'openembedded-core' $TOP_DIR/.repo/manifests/oe-layers.xml | grep -c 'krogoth') -gt 0 ]
+then
+    _OE_DISTRO="krogoth"
+elif [ $(grep -s 'openembedded-core' $TOP_DIR/.repo/manifests/oe-layers.xml | grep -c 'jethro') -gt 0 ]
+then
+    _OE_DISTRO="jethro"
+fi
+
+# Add meta-metrological only if not already present for RDK-V
+if [ "${_RDK_FLAVOR}" = "rdkv" ]
+then
+    if [[ $(grep '^BBLAYERS' conf/bblayers.conf | grep -c 'meta-metrological') -eq 0 ]] && [[ -d  ../meta-metrological ]]
+    then
+        cat >> conf/bblayers.conf <<EOF
+BBLAYERS =+ "\${RDKROOT}/meta-metrological"
+EOF
+    fi
+fi
+
+if [[ -z $(grep 'rdk-rpi.inc' conf/local.conf) ]]
+then
+    cat >> conf/local.conf <<EOF
+require conf/distro/include/rdk-rpi.inc
+EOF
+fi
+
+sed -e "s|##OE_DISTRO##|${_OE_DISTRO}|g" -i $TOP_DIR/meta-cmf-raspberrypi/conf/machine/raspberrypi-rdk-broadband.conf
+sed -e "s|##OE_DISTRO##|${_OE_DISTRO}|g" -i $TOP_DIR/meta-cmf-raspberrypi/conf/machine/raspberrypi-rdk-hybrid.conf
+sed -e "s|##OE_DISTRO##|${_OE_DISTRO}|g" -i $TOP_DIR/meta-cmf-raspberrypi/conf/machine/raspberrypi-rdk-mc.conf
+
+# remove meta-cmf-qt5 from the bblayers
+sed -i -e '/meta-cmf-qt5/d' conf/bblayers.conf
+#sed -i -e '/openembedded-core/meta' conf/bblayers.conf
+
+# replace RDK FLAVOR to set BBMASKS
+sed -e "s|##RDK_FLAVOR##|rdkb|g" -i $TOP_DIR/meta-cmf-raspberrypi/conf/layer.conf
+sed -e "s|##RDK_FLAVOR##|rdkb|g" -i conf/local.conf
+

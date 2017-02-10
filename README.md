@@ -1,3 +1,1 @@
-# RINFYDKwork
-
-Nothing specific .. will have the collection of opensource components 
+# meta-cmf-infy
