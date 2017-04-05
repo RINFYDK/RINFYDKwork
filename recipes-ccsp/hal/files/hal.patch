@@ -1,0 +1,201 @@
+diff --git a/source/wifi/wifi_hal.c b/source/wifi/wifi_hal.c
+index 3e175b9..f0c1224 100755
+--- a/source/wifi/wifi_hal.c
++++ b/source/wifi/wifi_hal.c
+@@ -1137,6 +1137,7 @@ INT wifi_setSSIDName(INT apIndex, CHAR *ssid_string)
+   strcpy(params.value,ssid_string);
+   printf("\n%s\n",__func__);
+   wifi_hostapdWrite(apIndex,&params);
++
+   #if 0
+   //fetch ssid name
+   if(_syscmd("grep 'ssid=' /etc/hostapd.conf",str,sizeof(str)) == RETURN_ERR )
+@@ -1711,13 +1712,12 @@ INT wifi_getApName(INT apIndex, CHAR *output_string)
+ INT wifi_getIndexFromName(CHAR *inputSsidString, INT *ouput_int)
+ {
+     CHAR *pos=NULL;
+-
+     *ouput_int = -1;
+ 	pos=strstr(inputSsidString, AP_PREFIX);
+ 	if(pos) {
+-		sscanf(pos+sizeof(AP_PREFIX),"%d", ouput_int);
++		sscanf(pos+(sizeof(AP_PREFIX)-1),"%d", ouput_int); //karthiga changed [-1]
+ 		return RETURN_OK;
+-	} 
++	}
+ 	return RETURN_ERR;
+ }
+ 
+@@ -1799,16 +1799,56 @@ INT wifi_setApRtsThreshold(INT apIndex, UINT threshold)
+ // ouputs up to a 32 byte string as either "TKIPEncryption", "AESEncryption", or "TKIPandAESEncryption"
+ INT wifi_getApWpaEncryptionMode(INT apIndex, CHAR *output_string)
+ {
+-	if (NULL == output_string) 
++/*	if (NULL == output_string) 
+ 		return RETURN_ERR;
+ 	snprintf(output_string, 32, "TKIPandAESEncryption");
+-	return RETURN_OK;
++	return RETURN_OK; */
++
++    struct params params={"wpa_pairwise",NULL};
++    if (NULL == output_string)
++        return RETURN_ERR;
++
++
++    wifi_hostapdRead(apIndex,&params,output_string);
++    wifi_dbg_printf("\n %s output_string=%s",__func__,output_string);
++    if (NULL == output_string)
++        return RETURN_ERR;
+ 
++    if (strcmp(output_string,"TKIP") == 0)
++        strncpy(output_string,"TKIPEncryption", strlen("TKIPEncryption"));
++    else if(strcmp(output_string,"CCMP") == 0)
++        strncpy(output_string,"AESEncryption", strlen("AESEncryption"));
++    else if(strcmp(output_string,"TKIP CCMP") == 0)
++        strncpy(output_string,"TKIPandAESEncryption", strlen("TKIPandAESEncryption"));
++
++    return RETURN_OK;
+ }
+ 
+ // sets the encyption mode enviornment variable.  Valid string format is "TKIPEncryption", "AESEncryption", or "TKIPandAESEncryption"
+ INT wifi_setApWpaEncryptionMode(INT apIndex, CHAR *encMode)
+ {
++    struct params params={'\0'};
++    int ret;
++
++    strncpy(params.name, "wpa_pairwise", strlen("wpa_pairwise"));
++
++    if ( strcmp(encMode, "TKIPEncryption") == 0)
++    {
++       strncpy(params.value, "TKIP", strlen("TKIP"));
++    }
++    else if ( strcmp(encMode,"AESEncryption") == 0)
++    {
++        strncpy(params.value, "CCMP", strlen("CCMP"));
++    }
++    else if (strcmp(encMode,"TKIPandAESEncryption") == 0)
++    {
++        strncpy(params.value,"TKIP CCMP",strlen("TKIP CCMP"));
++    }
++    ret=wifi_hostapdWrite(apIndex,&params);
++    if(ret == 0)
++	{
++	  return RETURN_OK;
++	}
+ 	//Save the encMode to wifi config and hostpad config. wait for wifi restart or hotapd restart to apply
+ 	return RETURN_ERR;
+ }
+@@ -1843,8 +1883,24 @@ INT wifi_setApAuthMode(INT apIndex, INT mode)
+ // sets an enviornment variable for the authMode. Valid strings are "None", "EAPAuthentication" or "SharedAuthentication"                     
+ INT wifi_setApBasicAuthenticationMode(INT apIndex, CHAR *authMode)
+ {
+-	//save to wifi config, and wait for wifi restart to apply
+-	return RETURN_ERR;
++	//save to wifi config, and wait for wifi restart to apply 
++    struct params params={'\0'};
++    int ret;
++    if(authMode ==  NULL)
++        return RETURN_ERR;
++    wifi_dbg_printf("\n%s AuthMode=%s",__func__,authMode);
++    strncpy(params.name,"wpa_key_mgmt",strlen("wpa_key_mgmt"));
++    if(strcmp(authMode,"PSKAuthentication") == 0)
++        strcpy(params.value,"WPA-PSK");
++
++    else if(strcmp(authMode,"EAPAuthentication") == 0)
++        strcpy(params.value,"WPA-EAP");
++
++    else if(strcmp(authMode,"None") == 0) //Donot change in case the authMode is None
++             return RETURN_OK;            //This is taken careof in beaconType
++
++    ret=wifi_hostapdWrite(apIndex,&params);
++    return ret;
+ }
+ 
+ // Outputs the number of stations associated per AP
+@@ -2295,17 +2351,44 @@ INT wifi_setApSecurityPreSharedKey(INT apIndex, CHAR *preSharedKey)
+ // outputs the passphrase, maximum 63 characters
+ INT wifi_getApSecurityKeyPassphrase(INT apIndex, CHAR *output_string)
+ {	
+-	if(!output_string)
++/*	if(!output_string)
+ 		return RETURN_ERR;
+ 	snprintf(output_string, 63, "12345678");
+-	return RETURN_OK;
++	return RETURN_OK;*/
++
++   struct params params={"wpa_passphrase",NULL};
++   wifi_dbg_printf("\nFunc=%s\n",__func__);
++   if (NULL == output_string)
++   return RETURN_ERR;
++   wifi_hostapdRead(apIndex,&params,output_string);
++   wifi_dbg_printf("\noutput_string=%s\n",output_string);  
++  if(output_string==NULL)
++       return RETURN_ERR;
++   else
++       return RETURN_OK;
+ }
+ 
+ // sets the passphrase enviornment variable, max 63 characters
+ INT wifi_setApSecurityKeyPassphrase(INT apIndex, CHAR *passPhrase)
+ {	
+ 	//save to wifi config and hotapd config. wait for wifi reset or hostapd restet to apply
+-	return RETURN_ERR;
++
++    struct params params={'\0'};
++    int ret;
++    strcpy(params.name,"wpa_passphrase");
++    strcpy(params.value,passPhrase);
++    if(strlen(passPhrase)<8 || strlen(passPhrase)>63)
++    {
++        wifi_dbg_printf("\nCannot Set Passphrase length of preshared key should be 8 to 63 chars\n");
++        return RETURN_ERR;
++    }
++    else
++    {
++    	ret=wifi_hostapdWrite(apIndex,&params);   
++        return ret;
++    }
++        return RETURN_ERR;
++
+ }
+ 
+ //When set to true, this AccessPoint instance's WiFi security settings are reset to their factory default values. The affected settings include ModeEnabled, WEPKey, PreSharedKey and KeyPassphrase.
+diff --git a/source/wifi/wifi_hostapd_interface.c b/source/wifi/wifi_hostapd_interface.c
+index dcfb187..e0c83a2 100755
+--- a/source/wifi/wifi_hostapd_interface.c
++++ b/source/wifi/wifi_hostapd_interface.c
+@@ -152,6 +152,7 @@ int wifi_hostapdRead(int ap,struct params *params,char *output)
+ 
+ int wifi_hostapdWrite(int ap,struct params *params)
+ {
++
+   char cmd[MAX_CMD_SIZE];
+   char wpa_val[2];
+   char cur_val[127]={'\0'};
+@@ -189,21 +190,23 @@ int wifi_hostapdWrite(int ap,struct params *params)
+     sprintf(cmd,"sed -i 's/%s=%s/%s=%s/g' %s%d.conf",params->name,cur_val,params->name,params->value,HOSTAPD_FNAME,ap);
+ 	printf("\ncur_val for wpa=%s wpa_val=%s\ncmd=%s\n",cur_val,wpa_val,cmd);
+     _syscmd(cmd,buf,sizeof(buf));
++    	
+     system("killall hostapd");
+     sleep(1);
+-    system("hostapd -B /etc/hostapd0.conf /etc/hostapd1.conf");
++    system("/usr/sbin/hostapd -B /etc/hostapd0.conf"); 
+     return RETURN_OK;
+   }
+-  
++ 
+   wifi_hostapdRead(ap,params,cur_val);
+   printf("\ncur_value=%s\n",cur_val);
+   memset(cmd,'\0',sizeof(cmd));
+   sprintf(cmd,"sed -i 's/%s=%s/%s=%s/g' %s%d.conf",params->name,cur_val,params->name,params->value,HOSTAPD_FNAME,ap);
+   _syscmd(cmd,buf,sizeof(buf));
+   wifi_dbg_printf("\ncmdsss=%s\n",cmd);
++
+   system("killall hostapd");
+   sleep(1);
+-  system("hostapd -B /etc/hostapd0.conf /etc/hostapd1.conf");
++  system("/usr/sbin/hostapd -B /etc/hostapd0.conf");    
+   return RETURN_OK;
+ }
+ 
