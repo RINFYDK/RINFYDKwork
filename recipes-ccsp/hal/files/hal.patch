@@ -161,7 +161,7 @@ index 3e175b9..f0c1224 100755
  
  //When set to true, this AccessPoint instance's WiFi security settings are reset to their factory default values. The affected settings include ModeEnabled, WEPKey, PreSharedKey and KeyPassphrase.
 diff --git a/source/wifi/wifi_hostapd_interface.c b/source/wifi/wifi_hostapd_interface.c
-index dcfb187..e0c83a2 100755
+index dcfb187..480fa0b 100755
 --- a/source/wifi/wifi_hostapd_interface.c
 +++ b/source/wifi/wifi_hostapd_interface.c
 @@ -152,6 +152,7 @@ int wifi_hostapdRead(int ap,struct params *params,char *output)
@@ -172,15 +172,20 @@ index dcfb187..e0c83a2 100755
    char cmd[MAX_CMD_SIZE];
    char wpa_val[2];
    char cur_val[127]={'\0'};
-@@ -189,21 +190,23 @@ int wifi_hostapdWrite(int ap,struct params *params)
+@@ -189,21 +190,31 @@ int wifi_hostapdWrite(int ap,struct params *params)
      sprintf(cmd,"sed -i 's/%s=%s/%s=%s/g' %s%d.conf",params->name,cur_val,params->name,params->value,HOSTAPD_FNAME,ap);
  	printf("\ncur_val for wpa=%s wpa_val=%s\ncmd=%s\n",cur_val,wpa_val,cmd);
      _syscmd(cmd,buf,sizeof(buf));
+-    system("killall hostapd");
 +    	
-     system("killall hostapd");
++    /*system("killall hostapd");
      sleep(1);
 -    system("hostapd -B /etc/hostapd0.conf /etc/hostapd1.conf");
-+    system("/usr/sbin/hostapd -B /etc/hostapd0.conf"); 
++    system("/usr/sbin/hostapd -B /etc/hostapd0.conf"); */
++
++ system("systemctl stop hostapd");
++ sleep(3);
++ system("systemctl start hostapd");
      return RETURN_OK;
    }
 -  
@@ -191,11 +196,16 @@ index dcfb187..e0c83a2 100755
    sprintf(cmd,"sed -i 's/%s=%s/%s=%s/g' %s%d.conf",params->name,cur_val,params->name,params->value,HOSTAPD_FNAME,ap);
    _syscmd(cmd,buf,sizeof(buf));
    wifi_dbg_printf("\ncmdsss=%s\n",cmd);
+-  system("killall hostapd");
 +
-   system("killall hostapd");
++  /*system("killall hostapd");
    sleep(1);
 -  system("hostapd -B /etc/hostapd0.conf /etc/hostapd1.conf");
-+  system("/usr/sbin/hostapd -B /etc/hostapd0.conf");    
++  system("/usr/sbin/hostapd -B /etc/hostapd0.conf"); */
++
++ system("systemctl stop hostapd");
++ sleep(3);
++ system("systemctl start hostapd");
    return RETURN_OK;
  }
  
